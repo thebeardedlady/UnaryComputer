@@ -50,6 +50,12 @@ enum {
 }compiler_mode;
 
 
+typedef struct {
+	string Name;
+	int InstructionLine;
+	int LineNum;
+}label;
+
 b32
 WhiteSpaceCharacter(char character)
 {
@@ -276,6 +282,37 @@ FindString(const char Text[], int TextLength,const char Pattern[], int PatternLe
 	return i;
 }
 
+int
+FindString(char *Text, int TextLength, char *Pattern, int PatternLength)
+{
+	int i = 0;
+	while (i <= TextLength - PatternLength + 1)
+	{
+		b32 Match = true;
+		for (int j = 0; j < PatternLength; ++j)
+		{
+			if (Pattern[j] != Text[i + j])
+			{
+				Match = false;
+				break;
+			}
+		}
+		if (Match)
+		{
+			break;
+		}
+		++i;
+	}
+
+
+	if (i == (TextLength - PatternLength + 2))
+	{
+		i = -1;
+	}
+
+	return i;
+}
+
 void
 RemoveCharacter(string Body, int start, int end)
 {
@@ -298,7 +335,8 @@ RemoveCharacter(char *String, int Length, int Start, int End)
 
 
 
-void RemoveSpecialCharacters(string Body)
+string
+RemoveSpecialCharacters(string Body)
 {
 	for (int i = 0; i < Body.Length; ++i)
 	{
@@ -310,9 +348,13 @@ void RemoveSpecialCharacters(string Body)
 				++index;
 			}
 
+			
 			RemoveCharacter(Body, i, index);
+
+			Body.Length -= index - i;
 		}
 	}
+	return Body;
 }
 
 void
@@ -499,12 +541,19 @@ main(int argc, char* argv[])
 	ProgramBody.Text[fsize] = 10;
 	ProgramBody.Text[fsize + 1] = 0;
 
-	printf("%s", ProgramBody.Text);
+	//printf("%s", ProgramBody.Text);
 
 
-	RemoveSpecialCharacters(ProgramBody);
+	ProgramBody = RemoveSpecialCharacters(ProgramBody);
+	ToUpper(ProgramBody);
+	//RemoveSpecialCharacters(ProgramBody.Text,ProgramBody.Length);
 
-	printf("\n\n%s",ProgramBody.Text);
+	//printf("%s", ProgramBody.Text);
+
+	//printf("\n\n%s",ProgramBody.Text);
+
+
+
 
 	//NOTE(ian): split into lines
 	int NumLines = 0;
@@ -518,6 +567,13 @@ main(int argc, char* argv[])
 	int* LineLengths = (int*)malloc((NumLines+1)*sizeof(int));
 	
 	LineLengths[0] = 0;
+
+
+	
+
+	
+
+
 	int LineWidth = 0;
 	int LineIndex = 1;
 	for (int i = 0; i < ProgramBody.Length; ++i)
@@ -533,34 +589,85 @@ main(int argc, char* argv[])
 		}
 	}
 
-	int NumRegisters = 10;
+	/*
+	for (int i = 0; i < NumLines; ++i)
+	{
+		printf("\nLine #%d: ", i+1);
+		for (int j = LineLengths[i]; j < LineLengths[i + 1]; ++j)
+		{
+			printf("%c", ProgramBody.Text[j]);
+		}
+	}
+
+	int u;
+
+	scanf_s("%d", &u);
+	*/
+
+	int InstructionCount = 0;
+	int NumRegisters = 25;
 	int *Registers = (int*)malloc(NumRegisters * sizeof(int));
-	int CompilerMode = COMPILER_NONE;
 	int MaxInstructions = 5000;
 	instruction* ByteCode = (instruction*)malloc(MaxInstructions * sizeof(instruction));
-	int InstructionCount = 0;
+	int MaxMainMemory = 1000000;
+	int MainMemory = MaxMainMemory;
 	int QueueMaxSize = 1000;
 	int *Queue = (int *)malloc(QueueMaxSize * sizeof(int));
 	int QueueSize = 0;
-	int MainMemory = 1000000;
+	int QueueStart = 0;
 	int ErrorCount = 0;
+
+
+	int CompilerMode = COMPILER_NONE;
+	int *InstructionLines = (int *)malloc(MaxInstructions * sizeof(int));
+	int NumLabels = 0;
+	int MaxLabels = 1000;
+	label *Labels = (label*)malloc(MaxLabels * sizeof(label));
+
+
 	for (int i = 0; i < NumLines; ++i)
 	{
 		if (CompilerMode == COMPILER_NONE)
 		{
-			if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".", 1) != -1)
+			int DotIndex = FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".", 1) + LineLengths[i];
+
+			if (DotIndex != -1)
 			{
-				if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".data", 5) != -1)
+				if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".DATA", 5) != -1)
 				{
 					CompilerMode = COMPILER_QUEUEING;
 				}
-				else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".code", 5) != -1)
+				else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".CODE", 5) != -1)
 				{
 					CompilerMode = COMPILER_CODE;
 				}
 				else
 				{
 					CompilerMode = COMPILER_NONE;
+					int EndHeaderIndex = DotIndex + 1;
+					for (int j = EndHeaderIndex; j < LineLengths[i + 1]; ++j)
+					{
+						if (!AlphabeticalCharacter(ProgramBody.Text[j]))
+						{
+							EndHeaderIndex = j;
+						}
+					}
+
+					string Temp;
+					Temp.Length = EndHeaderIndex - DotIndex;
+					Temp.Text = (char*)malloc((Temp.Length + 1) * sizeof(char));
+					for (int j = 0; j < Temp.Length; ++j)
+					{
+						Temp.Text[j] = ProgramBody.Text[DotIndex + j];
+					}
+					Temp.Text[Temp.Length] = 0;
+					ToUpper(Temp);
+
+					printf("\nERROR - Line %d: %s is not a proper header.", i + 1,Temp);
+					++ErrorCount;
+
+					free(Temp.Text);
+
 				}
 			}
 		}
@@ -627,13 +734,121 @@ main(int argc, char* argv[])
 				}
 			}
 
+			int LabelMode = 0;
+			int LabelStartIndex = 0;
+			int LabelEndIndex = 0;
+			for (int j = LineLengths[i]; j < LineLengths[i + 1]; ++j)
+			{
+				if (LabelMode == 0)
+				{
+					if (AlphaNumericCharacter(ProgramBody.Text[j]))
+					{
+						LabelMode = 1;
+						LabelStartIndex = j;
+					}
+				}
+				else if (LabelMode == 1)
+				{
+					if (ProgramBody.Text[j] == ':')
+					{
+						LabelEndIndex = j;
+						break;
+					}
+				}
+			}
 
-			if (!SwitchMode && (LineLengths[i+1] - LineLengths[i]-1) > 0)
+			int StartOpcodeIndex = LineLengths[i];
+
+			if (LabelEndIndex > 0)
+			{
+				StartOpcodeIndex = LabelEndIndex + 1;
+				if (NumLabels + 1 < MaxLabels)
+				{
+					string Temp;
+					Temp.Length = LabelEndIndex - LabelStartIndex;
+					Temp.Text = (char*)malloc((Temp.Length+1)*sizeof(char));
+					for (int j = 0; j < Temp.Length; ++j)
+					{
+						Temp.Text[j] = ProgramBody.Text[LabelStartIndex + j];
+					}
+					Temp.Text[Temp.Length] = 0;
+					ToUpper(Temp);
+
+
+					int TakenLabel = -1;
+					
+					for (int j = 0; j < NumLabels; ++j)
+					{
+						
+
+						string AlreadyLabel;
+						AlreadyLabel.Length = Labels[j].Name.Length;
+						AlreadyLabel.Text = (char*)malloc((AlreadyLabel.Length + 1) * sizeof(char));
+						for (int k = 0; k < AlreadyLabel.Length; ++k)
+						{
+							AlreadyLabel.Text[k] = Labels[j].Name.Text[k];
+						}
+						AlreadyLabel.Text[AlreadyLabel.Length] = 0;
+						ToUpper(AlreadyLabel);
+
+						if (EqualString(Temp, AlreadyLabel))
+						{
+							TakenLabel = j;
+							free(AlreadyLabel.Text);
+							break;
+						}
+
+						free(AlreadyLabel.Text);
+					}
+
+					if (TakenLabel != -1)
+					{
+						printf("\nERROR - Line %d: Label %s already exists on Line %d", i, Temp.Text, Labels[TakenLabel].LineNum);
+						++ErrorCount;
+					}
+					else
+					{
+						b32 EmptyLine = true;
+						for (int j = LabelEndIndex + 1; j < LineLengths[i + 1]; ++j)
+						{
+							if (AlphaNumericCharacter(ProgramBody.Text[j]))
+							{
+								EmptyLine = false;
+								break;
+							}
+						}
+						if (EmptyLine)
+						{
+							Labels[NumLabels].InstructionLine = InstructionCount;
+							Labels[NumLabels].LineNum = i + 1;
+							Labels[NumLabels].Name.Text = &ProgramBody.Text[LabelStartIndex];
+							Labels[NumLabels].Name.Length = LabelEndIndex - LabelStartIndex;
+							++NumLabels;
+							instruction Potential;
+							Potential.opcode = NOP;
+							InstructionLines[InstructionCount] = i;
+							ByteCode[InstructionCount++] = Potential;
+						}
+						else
+						{
+							Labels[NumLabels].InstructionLine = InstructionCount;
+							Labels[NumLabels].LineNum = i + 1;
+							Labels[NumLabels].Name.Text = &ProgramBody.Text[LabelStartIndex];
+							Labels[NumLabels].Name.Length = LabelEndIndex - LabelStartIndex;
+							++NumLabels;
+						}
+					}
+					free(Temp.Text);
+				}
+			}
+
+
+			if (!SwitchMode && (LineLengths[i+1] - StartOpcodeIndex-1) > 0)
 			{
 				b32 ScanningInstruction = false;
-				string instr = {};
+				string instr = {0};
 				int EndOpcodeIndex = 0;
-				for (int j = LineLengths[i]; j < LineLengths[i + 1]; ++j)
+				for (int j = StartOpcodeIndex; j < LineLengths[i + 1]; ++j)
 				{
 					if (!ScanningInstruction)
 					{
@@ -658,6 +873,8 @@ main(int argc, char* argv[])
 					}
 				}
 
+				
+				
 				string Copy = {};
 				Copy.Length = instr.Length;
 				Copy.Text = (char*)malloc((Copy.Length+1) * sizeof(char));
@@ -741,10 +958,55 @@ main(int argc, char* argv[])
 
 				if (Potential.opcode == NOP || Potential.opcode == CLR)
 				{
+					InstructionLines[InstructionCount] = i;
 					ByteCode[InstructionCount++] = Potential;
 				}
 				else if (Potential.opcode == JMP || Potential.opcode == JE || Potential.opcode == JNE || Potential.opcode == COL)
 				{
+					string OperandOne = {0};
+					int ScanningOperands = 0;
+					for (int j = EndOpcodeIndex; j < LineLengths[i + 1]; ++j)
+					{
+						if (ScanningOperands == 0)
+						{
+							if (AlphaNumericCharacter(ProgramBody.Text[j]))
+							{
+								OperandOne.Text = &ProgramBody.Text[j];
+								OperandOne.Length = 1;
+								ScanningOperands = 1;
+							}
+						}
+						else if (ScanningOperands == 1)
+						{
+							if (AlphaNumericCharacter(ProgramBody.Text[j]))
+							{
+								++OperandOne.Length;
+							}
+							else
+							{
+								ScanningOperands = 2;
+							}
+						}
+					}
+
+					if (OperandOne.Length == 0)
+					{
+						ToUpper(Copy);
+						printf("\nERROR - Line %d: %s requires 1 operand", i + 1, Copy.Text);
+						++ErrorCount;
+					}
+					else
+					{
+						if (Potential.opcode == JMP || Potential.opcode == JE || Potential.opcode == JNE)
+						{
+							InstructionLines[InstructionCount] = i;
+							ByteCode[InstructionCount++] = Potential;
+						}
+						else if (Potential.opcode == COL)
+						{
+							//TODO(ian): add more here when instruction is supported
+						}
+					}
 
 				}
 				else if(Potential.opcode != -1)
@@ -771,6 +1033,7 @@ main(int argc, char* argv[])
 							}
 							else
 							{
+
 								ScanningOperands = 2;
 							}
 						}
@@ -838,10 +1101,10 @@ main(int argc, char* argv[])
 							free(Temp.Text);
 						}
 
-						int OpTwo = ParseOperand(OperandOne);
+						int OpTwo = ParseOperand(OperandTwo);
 						if ((OpTwo > 0 && OpTwo <= NumRegisters) || OpTwo == QP || OpTwo == MME)
 						{
-							Potential.des = OpOne;
+							Potential.des = OpTwo;
 						}
 						else
 						{
@@ -897,6 +1160,19 @@ main(int argc, char* argv[])
 								printf("\nERROR - Line %d: Queue Pointer cannot be the second operand in a SWP instruction", i+1);
 								++ErrorCount;
 							}
+
+							if (Potential.src == MME)
+							{
+								ProperInstruction = false;
+								printf("\nERROR - Line %d: Main Memory cannot be the first operand in a SWP instruction", i + 1);
+								++ErrorCount;
+							}
+							if (Potential.des == MME)
+							{
+								ProperInstruction = false;
+								printf("\nERROR - Line %d: Main Memory cannot be the second operand in a SWP instruction", i + 1);
+								++ErrorCount;
+							}
 							
 						}
 						else if (Potential.opcode == PRT)
@@ -932,6 +1208,7 @@ main(int argc, char* argv[])
 
 						if (ProperInstruction)
 						{
+							InstructionLines[InstructionCount] = i;
 							ByteCode[InstructionCount++] = Potential;
 						}
 					}
@@ -946,49 +1223,537 @@ main(int argc, char* argv[])
 
 	}
 
+	for (int i = 0; i < InstructionCount; ++i)
+	{
+		if (ByteCode[i].opcode == JMP || ByteCode[i].opcode == JE || ByteCode[i].opcode == JNE)
+		{
+
+			//TODO(ian): Make a function that compares two strings case-insensitively
+			// or just ToUpper() the entire program body
+			//IMPORTANT TODO(ian):Also clean up all of the mallocs/frees
+
+			string Operand = { 0 };
+			int OperandIndex = 0;
+			string Line = { 0 };
+			Line.Text = &ProgramBody.Text[LineLengths[InstructionLines[i]]];
+			Line.Length = LineLengths[InstructionLines[i] + 1] - LineLengths[InstructionLines[i]];
+			if (ByteCode[i].opcode == JMP)
+			{
+				OperandIndex = FindString(Line.Text, Line.Length, "JMP", 3) + 3;
+			}
+			else if (ByteCode[i].opcode == JE)
+			{
+				OperandIndex = FindString(Line.Text, Line.Length, "JE", 2) + 2;
+			}
+			else if (ByteCode[i].opcode == JNE)
+			{
+				OperandIndex = FindString(Line.Text, Line.Length, "JNE", 3) + 3;
+			}
+
+			int LabelMode = 0;
+			for (int k = OperandIndex; k < Line.Length; ++k)
+			{
+				if (LabelMode == 0)
+				{
+					if (AlphaNumericCharacter(Line.Text[k]))
+					{
+						LabelMode = 1;
+						Operand.Text = &Line.Text[k];
+						Operand.Length = 1;
+					}
+				}
+				else if (LabelMode == 1)
+				{
+					if (AlphaNumericCharacter(Line.Text[k]))
+					{
+						++Operand.Length;
+					}
+					else
+					{
+						break;
+					}
+				}
+			}
+
+			b32 FoundLabel = false;
+			for (int j = 0; j < NumLabels; ++j)
+			{
+				if (EqualString(Labels[j].Name, Operand))
+				{
+					FoundLabel = true;
+					ByteCode[i].src = Labels[j].InstructionLine - i;
+					break;
+				}
+			}
+
+			if (!FoundLabel)
+			{
+				char *Printable = (char*)malloc((Operand.Length + 1) * sizeof(char));
+				for (int j = 0; j < Operand.Length; ++j)
+				{
+					Printable[j] = Operand.Text[j];
+				}
+				Printable[Operand.Length] = 0;
+
+				printf("\nERROR - Line %d: There is no label called %s in the program.",InstructionLines[i],Printable);
+				++ErrorCount;
+
+				free(Printable);
+			}
+		}
+	}
+
 	
 
 	if (ErrorCount > 0)
 	{
-		printf("\nCOMPILATION FAILED - %d errors", ErrorCount);
+		if (ErrorCount == 1)
+		{
+			printf("\nCOMPILATION FAILED - %d error", ErrorCount);
+		}
+		else
+		{
+			printf("\nCOMPILATION FAILED - %d errors", ErrorCount);
+		}
 	}
 	else
 	{
+		for (int i = 0; i < NumRegisters; ++i)
+		{
+			Registers[i] = 0;
+		}
 
+		int ProgramCounter = 0;
+		int CycleCount = 0;
+		int MinMainMemory = MaxMainMemory;
+		while (ProgramCounter >= 0 && ProgramCounter < InstructionCount)
+		{
+			/*
+			NOP,
+			TFA,
+			TFO,
+			SWP,
+			JMP,
+			JE,
+			JNE,
+			PRT,
+			PXL,
+			COL,
+			CLR
+			*/
+
+			int ProgramIncrement = 1;
+			if (ByteCode[ProgramCounter].opcode == NOP)
+			{
+				//NOTE(ian): Do nothing
+			}
+			else if (ByteCode[ProgramCounter].opcode == TFA)
+			{
+				/*
+				MME = -2,
+				QP,
+				NULL_REGISTER
+				*/
+				if (ByteCode[ProgramCounter].src == MME)
+				{
+					if (ByteCode[ProgramCounter].des == MME)
+					{
+						//NOTE(ian): Do nothing
+					}
+					else if (ByteCode[ProgramCounter].des == QP)
+					{
+						if (QueueSize < QueueMaxSize)
+						{
+							Queue[(QueueStart + QueueSize) % QueueMaxSize] = MainMemory;
+							MainMemory = 0;
+							++QueueSize;
+						}
+						else
+						{
+							//TODO(ian): DO something!!!!!!!!!
+						}
+					}
+					else if (ByteCode[ProgramCounter].des > NULL_REGISTER)
+					{
+						Registers[ByteCode[ProgramCounter].des - 1] += MainMemory;
+						MainMemory = 0;
+					}
+				}
+				else if (ByteCode[ProgramCounter].src == QP)
+				{
+					if (ByteCode[ProgramCounter].des == MME)
+					{
+						if (QueueSize > 0)
+						{
+							MainMemory += Queue[QueueStart];
+							QueueStart = (QueueStart + 1) % QueueMaxSize;
+							--QueueSize;
+						}
+						else
+						{
+							//TODO(ian): what should I do here?
+						}
+					}
+					else if (ByteCode[ProgramCounter].des == QP)
+					{
+						if (QueueSize < QueueMaxSize && QueueSize > 0)
+						{
+							Queue[(QueueStart + QueueSize) % QueueMaxSize] = Queue[QueueStart];
+							QueueStart = (QueueStart + 1) % QueueMaxSize;
+							//++QueueSize;
+						}
+						else
+						{
+							//TODO(ian): DO something!!!!!!!!!
+						}
+					}
+					else if (ByteCode[ProgramCounter].des > NULL_REGISTER)
+					{
+						if (QueueSize > 0)
+						{
+							Registers[ByteCode[ProgramCounter].des - 1] += Queue[QueueStart];
+							QueueStart = (QueueStart + 1) % QueueMaxSize;
+							--QueueSize;
+						}
+					}
+				}
+				else if (ByteCode[ProgramCounter].src > NULL_REGISTER)
+				{
+					if (ByteCode[ProgramCounter].des == MME)
+					{
+						MainMemory += Registers[ByteCode[ProgramCounter].src - 1];
+						Registers[ByteCode[ProgramCounter].src - 1] = 0;
+					}
+					else if (ByteCode[ProgramCounter].des == QP)
+					{
+						if (QueueSize < QueueMaxSize)
+						{
+							Queue[(QueueStart + QueueSize) % QueueMaxSize] = Registers[ByteCode[ProgramCounter].src - 1];
+							Registers[ByteCode[ProgramCounter].src-1] = 0;
+							++QueueSize;
+						}
+						else
+						{
+							//TODO(ian): DO something!!!!!!!!!
+						}
+					}
+					else if (ByteCode[ProgramCounter].des > NULL_REGISTER)
+					{
+						Registers[ByteCode[ProgramCounter].des - 1] += Registers[ByteCode[ProgramCounter].src - 1];
+						Registers[ByteCode[ProgramCounter].src - 1] = 0;
+					}
+				}
+			}
+			else if (ByteCode[ProgramCounter].opcode == TFO)
+			{
+				/*
+				MME = -2,
+				QP,
+				NULL_REGISTER
+				*/
+				if (ByteCode[ProgramCounter].src == MME)
+				{
+					if (MainMemory > 0)
+					{
+						if (ByteCode[ProgramCounter].des == MME)
+						{
+							//NOTE(ian): Do nothing
+						}
+						else if (ByteCode[ProgramCounter].des == QP)
+						{
+							if (QueueSize < QueueMaxSize)
+							{
+								Queue[(QueueStart + QueueSize) % QueueMaxSize] = 1;
+								--MainMemory;
+								++QueueSize;
+							}
+							else
+							{
+								//TODO(ian): DO something!!!!!!!!!
+							}
+						}
+						else if (ByteCode[ProgramCounter].des > NULL_REGISTER)
+						{
+							Registers[ByteCode[ProgramCounter].des - 1] += 1;
+							--MainMemory;
+						}
+					}
+				}
+				else if (ByteCode[ProgramCounter].src == QP)
+				{
+					//NOTE(ian): Cannot happen!!!!!
+				}
+				else if (ByteCode[ProgramCounter].src > NULL_REGISTER)
+				{
+					if (Registers[ByteCode[ProgramCounter].src - 1] > 0)
+					{
+						if (ByteCode[ProgramCounter].des == MME)
+						{
+							MainMemory += 1;
+							if (Registers[ByteCode[ProgramCounter].src - 1] > 0)
+							{
+								--Registers[ByteCode[ProgramCounter].src - 1];
+							}
+						}
+						else if (ByteCode[ProgramCounter].des == QP)
+						{
+							if (QueueSize < QueueMaxSize)
+							{
+								Queue[(QueueStart + QueueSize) % QueueMaxSize] = 1;
+								Registers[ByteCode[ProgramCounter].des - 1];
+								++QueueSize;
+							}
+							else
+							{
+								//TODO(ian): DO something!!!!!!!!!
+							}
+						}
+						else if (ByteCode[ProgramCounter].des > NULL_REGISTER)
+						{
+							Registers[ByteCode[ProgramCounter].des - 1] += 1;
+							--Registers[ByteCode[ProgramCounter].src - 1];
+						}
+					}
+				}
+			}
+			else if (ByteCode[ProgramCounter].opcode == SWP)
+			{
+				int temp = Registers[ByteCode[ProgramCounter].src - 1];
+				Registers[ByteCode[ProgramCounter].src - 1] = Registers[ByteCode[ProgramCounter].des - 1];
+				Registers[ByteCode[ProgramCounter].des - 1] = temp;
+			}
+			else if (ByteCode[ProgramCounter].opcode == JMP)
+			{
+				ProgramIncrement = ByteCode[ProgramCounter].src;
+			}
+			else if (ByteCode[ProgramCounter].opcode == JE)
+			{
+				if (Registers[0] == 0)
+				{
+					ProgramIncrement = ByteCode[ProgramCounter].src;
+				}
+			}
+			else if (ByteCode[ProgramCounter].opcode == JNE)
+			{
+				if (Registers[0] != 0)
+				{
+					ProgramIncrement = ByteCode[ProgramCounter].src;
+				}
+			}
+			else if (ByteCode[ProgramCounter].opcode == PRT)
+			{
+				if (Registers[ByteCode[ProgramCounter].src - 1] == 0)
+				{
+					printf("%c", (char)(Registers[ByteCode[ProgramCounter].des - 1]));
+				}
+				else
+				{
+					printf("\n --%d--", Registers[ByteCode[ProgramCounter].des - 1]);
+				}
+			}
+			else if (ByteCode[ProgramCounter].opcode == PXL)
+			{
+
+			}
+			else if (ByteCode[ProgramCounter].opcode == COL)
+			{
+
+			}
+			else if (ByteCode[ProgramCounter].opcode == CLR)
+			{
+
+			}
+			ProgramCounter += ProgramIncrement;
+			++CycleCount;
+			if (MainMemory < MinMainMemory)
+			{
+				MinMainMemory = MainMemory;
+			}
+		}
+
+		printf("\n Program Successfully Terminated Taking %d Cycles And Using %d Units at Its Peak", CycleCount, MaxMainMemory - MinMainMemory);
+	}
+
+	printf("\nQueue:");
+	for (int i = 0; i < QueueSize; ++i)
+	{
+		printf("\n#%d: %d", i, Queue[i]);
+	}
+
+	for (int i = 0; i < InstructionCount; ++i)
+	{
+		/*
+		NOP,
+		TFA,
+		TFO,
+		SWP,
+		JMP,
+		JE,
+		JNE,
+		PRT,
+		PXL,
+		COL,
+		CLR
+		*/
+		
+
+
+		printf("\n#%d: ",i);
+		if (ByteCode[i].opcode == NOP)
+		{
+			printf("NOP");
+		}
+		else if (ByteCode[i].opcode == TFA)
+		{
+			printf("TFA ");
+			if (ByteCode[i].src == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].src == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].src > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].src);
+			}
+			
+			printf(", ");
+			if (ByteCode[i].des == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].des == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].des > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].des);
+			}
+		}
+		else if (ByteCode[i].opcode == TFO)
+		{
+			printf("TFO ");
+			if (ByteCode[i].src == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].src == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].src > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].src);
+			}
+
+			printf(", ");
+			if (ByteCode[i].des == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].des == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].des > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].des);
+			}
+		}
+		else if (ByteCode[i].opcode == SWP)
+		{
+			printf("SWP ");
+			if (ByteCode[i].src == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].src == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].src > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].src);
+			}
+
+			printf(", ");
+			if (ByteCode[i].des == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].des == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].des > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].des);
+			}
+		}
+		else if (ByteCode[i].opcode == JMP)
+		{
+			printf("JMP %d", ByteCode[i].src);
+		}
+		else if (ByteCode[i].opcode == JE)
+		{
+			printf("JE %d", ByteCode[i].src);
+		}
+		
+		else if (ByteCode[i].opcode == JNE)
+		{
+			printf("JNE %d", ByteCode[i].src);
+		}
+		else if (ByteCode[i].opcode == PRT)
+		{
+			printf("PRT ");
+			if (ByteCode[i].src == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].src == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].src > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].src);
+			}
+
+			printf(", ");
+			if (ByteCode[i].des == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].des == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].des > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].des);
+			}
+		}
+		else if (ByteCode[i].opcode == PXL)
+		{
+
+		}
+		else if (ByteCode[i].opcode == COL)
+		{
+
+		}
+		else if (ByteCode[i].opcode == CLR)
+		{
+
+		}
 	}
 
 
+
+
 	int x;
-
-
 	scanf_s("%d", &x);
-
-
-
-
-
-
-
-
-
-
-
-
-	
-
-
-
-
-
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
