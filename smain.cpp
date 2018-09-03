@@ -34,6 +34,8 @@ typedef struct
 
 enum {
 	NULL_INSTRUCTION,
+	SIM_INSTRUCTION,
+	END_SIM_INSTRUCTION,
 	NOP,
 	JMP,
 	JE,
@@ -42,6 +44,7 @@ enum {
 	TFO,
 	SWP,
 	PRT,
+	SCN,
 	PXL,
 	COL,
 	DRW,
@@ -68,6 +71,12 @@ typedef struct
 	int src;
 	int des;
 }instruction;
+
+typedef struct
+{
+	int Start;
+	int End;
+}instruction_location;
 
 enum {
 	COMPILER_NONE = 0,
@@ -522,13 +531,13 @@ found_string
 ParseInstruction(string Line)
 {
 	b32 ScanningInstruction = false;
-	string instr = { 0 };
+	string instr = string{ Line.Text,0 };
 	int EndOpcodeIndex = 0;
 	for (int j = 0; j < Line.Length; ++j)
 	{
 		if (!ScanningInstruction)
 		{
-			if (AlphabeticalCharacter(Line.Text[j]))
+			if (AlphaNumericCharacter(Line.Text[j]))
 			{
 				instr.Text = &Line.Text[j];
 				instr.Length = 1;
@@ -537,7 +546,7 @@ ParseInstruction(string Line)
 		}
 		else
 		{
-			if (AlphabeticalCharacter(Line.Text[j]))
+			if (AlphaNumericCharacter(Line.Text[j]))
 			{
 				++instr.Length;
 			}
@@ -594,6 +603,10 @@ ParseInstruction(string Line)
 		else if (EqualString(instr, "BRK", 3))
 		{
 			Result.Found = BRK;
+		}
+		else if (EqualString(instr, "SCN", 3))
+		{
+			Result.Found = SCN;
 		}
 	}
 
@@ -718,13 +731,12 @@ HasNewSimInstruction(string Line)
 				}
 				else
 				{
-					ParameterIndex = j;
 					break;
 				}
 			}
 		}
 		Result.String = SimName;
-		Result.Found = ParameterIndex;
+		Result.Found = NewSimIndex + SimName.Length;
 	}
 
 
@@ -749,7 +761,7 @@ IsSimInstruction(string Operator, string *SimNames, int NumSimInstructions)
 }
 
 b32
-IsProperInstruction(instruction Potential, int *ErrorCount, int LineNum)
+IsProperInstruction(instruction Potential, int *ErrorCount, int LineNum,int RecursionDepth,found_string *RecursionDepthData)
 {
 	b32 ProperInstruction = true;
 	if (Potential.opcode == TFA)
@@ -761,7 +773,25 @@ IsProperInstruction(instruction Potential, int *ErrorCount, int LineNum)
 		if (Potential.src == QP)
 		{
 			ProperInstruction = false;
-			printf("\nERROR - Line %d: Queue Pointer cannot be the first operand in a TFO instruction", LineNum + 1);
+			printf("\nERROR - ");
+			if (RecursionDepth > 1)
+			{
+				for (int i = 0; i < RecursionDepth; ++i)
+				{
+					PrintString(RecursionDepthData[i].String);
+					printf(" Line %d",RecursionDepthData[i].Found+1);
+					if (i != RecursionDepth - 1)
+					{
+						printf("; ");
+					}
+				}
+				printf(": ");
+			}
+			else
+			{
+				printf("Line %d: ", LineNum+1);
+			}
+			printf("Queue Pointer cannot be the first operand in a TFO instruction.", LineNum + 1);
 			//TODO(ian): Come up with a better error message
 			++(*ErrorCount);
 		}
@@ -772,30 +802,102 @@ IsProperInstruction(instruction Potential, int *ErrorCount, int LineNum)
 		{
 			ProperInstruction = false;
 			//TODO(ian): Maybe allow this?
-			printf("\nERROR - Line %d: Cannot swap with the Queue Pointer", LineNum + 1);
+			printf("\nERROR - ");
+			if (RecursionDepth > 1)
+			{
+				for (int i = 0; i < RecursionDepth; ++i)
+				{
+					PrintString(RecursionDepthData[i].String);
+					printf(" Line %d", RecursionDepthData[i].Found+1);
+					if (i != RecursionDepth - 1)
+					{
+						printf("; ");
+					}
+				}
+				printf(": ");
+			}
+			else
+			{
+				printf("Line %d: ", LineNum+1);
+			}
+			printf("Cannot swap with the Queue Pointer.", LineNum + 1);
 			++(*ErrorCount);
 		}
 
 		if (Potential.src == MME || Potential.des == MME)
 		{
 			ProperInstruction = false;
-			printf("\nERROR - Line %d: Cannot swap with Main Memory", LineNum + 1);
+			printf("\nERROR - ");
+			if (RecursionDepth > 1)
+			{
+				for (int i = 0; i < RecursionDepth; ++i)
+				{
+					PrintString(RecursionDepthData[i].String);
+					printf(" Line %d", RecursionDepthData[i].Found+1);
+					if (i != RecursionDepth - 1)
+					{
+						printf("; ");
+					}
+				}
+				printf(": ");
+			}
+			else
+			{
+				printf("Line %d: ", LineNum+1);
+			}
+			printf("Cannot swap with Main Memory.", LineNum + 1);
 			++(*ErrorCount);
 		}
 	}
-	else if (Potential.opcode == PRT || Potential.opcode == PXL || Potential.opcode == COL)
+	else if (Potential.opcode == PRT || Potential.opcode == PXL || Potential.opcode == COL || Potential.opcode == SCN)
 	{
 		if (Potential.src == QP || Potential.des == QP)
 		{
 			ProperInstruction = false;
-			printf("\nERROR - Line %d: Queue Pointer cannot be used for a system instruction", LineNum + 1);
+			printf("\nERROR - ");
+			if (RecursionDepth > 1)
+			{
+				for (int i = 0; i < RecursionDepth; ++i)
+				{
+					PrintString(RecursionDepthData[i].String);
+					printf(" Line %d", RecursionDepthData[i].Found+1);
+					if (i != RecursionDepth - 1)
+					{
+						printf("; ");
+					}
+				}
+				printf(": ");
+			}
+			else
+			{
+				printf("Line %d: ", LineNum+1);
+			}
+			printf("Queue Pointer cannot be used for a system instruction. Only registers can.", LineNum + 1);
 			++(*ErrorCount);
 		}
 
 		if (Potential.src == MME || Potential.des == MME)
 		{
 			ProperInstruction = false;
-			printf("\nERROR - Line %d: Main Memory cannot be used for a system instruction", LineNum + 1);
+			printf("\nERROR - ");
+			if (RecursionDepth > 1)
+			{
+				for (int i = 0; i < RecursionDepth; ++i)
+				{
+					PrintString(RecursionDepthData[i].String);
+					printf(" Line %d", RecursionDepthData[i].Found+1);
+					if (i != RecursionDepth - 1)
+					{
+						printf("; ");
+					}
+				}
+				printf(": ");
+			}
+			else
+			{
+				printf("Line %d: ", LineNum+1);
+			}
+			printf("Main Memory cannot be used for a system instruction. Only registers can.", LineNum + 1);
 			++(*ErrorCount);
 		}
 	}
@@ -834,15 +936,15 @@ NumInstructionParameters(int Opcode)
 	{
 
 	}
-	else if (Opcode == NOP || Opcode == BRK)
+	else if (Opcode == NOP || Opcode == BRK || Opcode == END_SIM_INSTRUCTION)
 	{
 		Result = 0;
 	}
-	else if (Opcode == JMP || Opcode == JE || Opcode == JNE)
+	else if (Opcode == JMP || Opcode == JE || Opcode == JNE || Opcode == SIM_INSTRUCTION)
 	{
 		Result = 1;
 	}
-	else if (Opcode == TFA || Opcode == TFO || Opcode == SWP || Opcode == PRT || Opcode == PXL || Opcode == COL)
+	else if (Opcode == TFA || Opcode == TFO || Opcode == SWP || Opcode == PRT || Opcode == PXL || Opcode == COL || Opcode == SCN)
 	{
 		Result = 2;
 	}
@@ -869,21 +971,28 @@ AddLabel(label *Labels, string Label, int *NumLabels, int InstructionCount, int 
 #define NUM_REGISTERS 25
 #define MAX_INSTRUCTIONS 5000
 #define MAX_LABELS 1000
-#define MAX_MAIN_MEMORY 1000000
+#define MAX_MAIN_MEMORY 500000
 #define MAX_QUEUE_SIZE 5000
 #define MAX_PARAMETERS 10
-
+#define MAX_SIM_INSTRUCTIONS 500
 
 void
-PrintByteCode(instruction *ByteCode,int ProgramStart, int ProgramEnd)
+PrintByteCode(instruction *ByteCode,int ProgramStart, int ProgramEnd, int *InstructionLines)
 {
 	for (int i = ProgramStart; i < ProgramEnd; ++i)
 	{
-
 		printf("\n#%d: ", i);
 		if (ByteCode[i].opcode == NOP)
 		{
 			printf("NOP");
+		}
+		else if (ByteCode[i].opcode == SIM_INSTRUCTION)
+		{
+			printf("SIM_BEGIN %d",ByteCode[i].src);
+		}
+		else if (ByteCode[i].opcode == END_SIM_INSTRUCTION)
+		{
+			printf("SIM_END");
 		}
 		else if (ByteCode[i].opcode == TFA)
 		{
@@ -1030,13 +1139,46 @@ PrintByteCode(instruction *ByteCode,int ProgramStart, int ProgramEnd)
 		{
 			printf("BRK");
 		}
+		else if (ByteCode[i].opcode == SCN)
+		{
+			printf("SCN ");
+			if (ByteCode[i].src == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].src == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].src > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].src);
+			}
+
+			printf(", ");
+			if (ByteCode[i].des == MME)
+			{
+				printf("MME ");
+			}
+			else if (ByteCode[i].des == QP)
+			{
+				printf("QP ");
+			}
+			else if (ByteCode[i].des > NULL_REGISTER)
+			{
+				printf("R%d ", ByteCode[i].des);
+			}
+		}
+
+		printf(" Line %d", InstructionLines[i]+1);
+		
 
 	}
 }
 
 void
 AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, int *InstructionLines, int i, int *LineLengths, int *ErrorCount, label *Labels, int *NumLabels,
-	string *SimNames, instruction *SimInstructions, int *NumSimInstructions, int *SimInstructionLines,string *Parameters, int NumParameters, int *SimArgs)
+	string *SimNames, instruction *SimInstructions, int *NumSimInstructions, int *SimInstructionLines,string *Parameters, int NumParameters, int *SimArgs, int RecursionDepth, found_string *RecursionDepthData)
 {
 	found_string Label = ParseLabel(string{ &ProgramBody.Text[LineLengths[i]],LineLengths[i + 1] - LineLengths[i] - 1 });
 
@@ -1112,12 +1254,15 @@ AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, i
 
 		if (Potential.opcode == -1 && SimIndex == -1)
 		{
-			char Temp = ParsedInstr.String.Text[ParsedInstr.String.Length];
-			ParsedInstr.String.Text[ParsedInstr.String.Length] = 0;
-			++(*ErrorCount);
-			printf("\nERROR - Line %d: %s is either an unknown instruction or an improper label", i + 1, ParsedInstr.String.Text);
+			if (!EmptyLine(Line))
+			{
+				char Temp = ParsedInstr.String.Text[ParsedInstr.String.Length];
+				ParsedInstr.String.Text[ParsedInstr.String.Length] = 0;
+				++(*ErrorCount);
+				printf("\nERROR - Line %d: %s is either an unknown instruction or an improper label", i + 1, ParsedInstr.String.Text);
 
-			ParsedInstr.String.Text[ParsedInstr.String.Length] = Temp;
+				ParsedInstr.String.Text[ParsedInstr.String.Length] = Temp;
+			}
 		}
 		else if(NumOperands != RequiredArgs)
 		{
@@ -1180,7 +1325,7 @@ AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, i
 				}
 
 				//NOTE(ian): Error Count is pointer
-				b32 ProperInstruction = IsProperInstruction(Potential, ErrorCount, i);
+				b32 ProperInstruction = IsProperInstruction(Potential, ErrorCount, i,RecursionDepth,RecursionDepthData);
 				if (ProperInstruction)
 				{
 					InstructionLines[*InstructionCount] = i;
@@ -1192,63 +1337,97 @@ AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, i
 				int FirstInstrIndex = 0;
 				for (int j = 0; j < SimIndex; ++j)
 				{
-					FirstInstrIndex += SimInstructions[FirstInstrIndex].opcode + 1;
+					FirstInstrIndex += SimInstructions[FirstInstrIndex].src + 1;
 				}
 
-				for (int j = 0; j < SimInstructions[FirstInstrIndex].opcode; ++j)
+				//TODO(ian): change to Add Instruction function
+				//TODO(ian): Check to see if InstructionCount reaches MAX_INSTRUCTIONS
+				InstructionLines[(*InstructionCount)] = i;
+				ByteCode[(*InstructionCount)++] = instruction{ SIM_INSTRUCTION,SimIndex,0 };
+
+				
+				RecursionDepthData[RecursionDepth].String = ParsedInstr.String;
+				RecursionDepthData[RecursionDepth].Found = i;
+				++RecursionDepth;
+
+				for (int j = 0; j < SimInstructions[FirstInstrIndex].src; ++j)
 				{
-					instruction Potential = { 0,0,0 };
-					int Index = j + FirstInstrIndex + 1;
-					Potential.opcode = SimInstructions[Index].opcode;
-					int OpcodeParametersNum = NumInstructionParameters(Potential.opcode);
-					if (OpcodeParametersNum > 0)
+					if (*InstructionCount <= MAX_INSTRUCTIONS)
 					{
-						if (Potential.opcode == JMP || Potential.opcode == JE || Potential.opcode == JNE)
+						instruction Potential = { 0,0,0 };
+						int Index = j + FirstInstrIndex + 1;
+						Potential.opcode = SimInstructions[Index].opcode;
+						int OpcodeParametersNum = NumInstructionParameters(Potential.opcode);
+						if (OpcodeParametersNum > 0)
 						{
-							Potential.src = SimInstructions[Index].src;
-							Potential.des = SimInstructions[Index].des;
-						}
-						else
-						{
-							if (SimInstructions[Index].src <= SIM_REGISTER)
+							if (Potential.opcode == JMP || Potential.opcode == JE || Potential.opcode == JNE)
 							{
-								Potential.src = OperandCodes[(SimInstructions[Index].src * -1) + SIM_REGISTER];
+								Potential.src = SimInstructions[Index].src;
+								Potential.des = SimInstructions[Index].des;
 							}
 							else
 							{
-								Potential.src = SimInstructions[Index].src;
-							}
-
-							if (OpcodeParametersNum > 1)
-							{
-								if (SimInstructions[Index].des <= SIM_REGISTER)
+								if (SimInstructions[Index].src <= SIM_REGISTER)
 								{
-									Potential.des = OperandCodes[(SimInstructions[Index].des * -1) + SIM_REGISTER];
+									Potential.src = OperandCodes[(SimInstructions[Index].src * -1) + SIM_REGISTER];
 								}
 								else
 								{
-									Potential.des = SimInstructions[Index].des;
+									Potential.src = SimInstructions[Index].src;
+								}
+
+								if (OpcodeParametersNum > 1)
+								{
+									if (SimInstructions[Index].des <= SIM_REGISTER)
+									{
+										Potential.des = OperandCodes[(SimInstructions[Index].des * -1) + SIM_REGISTER];
+									}
+									else
+									{
+										Potential.des = SimInstructions[Index].des;
+									}
 								}
 							}
+
+
+
 						}
 
+						RecursionDepthData[RecursionDepth-1].Found = SimInstructionLines[Index];
+						if (Potential.opcode == SIM_INSTRUCTION)
+						{
+							RecursionDepthData[RecursionDepth].String = SimNames[Potential.src];
+							
+							++RecursionDepth;
+						}
+						else if (Potential.opcode == END_SIM_INSTRUCTION)
+						{
+							--RecursionDepth;
+						}
 
-						
+						//TODO(ian): Change Checking function to help users know it is a generated instruction
+						//from a sim instruction`
+
+
+						//TODO(ian): Change all Error Messages to include Recursion info
+						//NOTE(ian): Error Count is a pointer!!!
+						b32 ProperInstruction = IsProperInstruction(Potential, ErrorCount, i, RecursionDepth, RecursionDepthData);
+
+						if (ProperInstruction)
+						{
+							//TODO(ian): Check to see if InstructionCount reaches MAX_INSTRUCTIONS
+							InstructionLines[(*InstructionCount)] = SimInstructionLines[Index];
+							ByteCode[(*InstructionCount)++] = Potential;
+						}
 					}
 
-					//TODO(ian): Change Checking function to help users know it is a generated instruction
-					//from a sim instruction`
-
-					//NOTE(ian): Error Count is a pointer!!!
-					b32 ProperInstruction = IsProperInstruction(Potential, ErrorCount, i);
-
-					if (ProperInstruction)
-					{
-						//TODO(ian): Check to see if InstructionCount reaches MAX_INSTRUCTIONS
-						InstructionLines[(*InstructionCount)] = SimInstructionLines[Index];
-						ByteCode[(*InstructionCount)++] = Potential;
-					}
+					
 				}
+
+				//TODO(ian): change to Add Instruction function
+				//TODO(ian): Check to see if InstructionCount reaches MAX_INSTRUCTIONS
+				InstructionLines[(*InstructionCount)] = i;
+				ByteCode[(*InstructionCount)++] = instruction{ END_SIM_INSTRUCTION,0,0 };
 			}
 		}
 	}
@@ -1293,7 +1472,7 @@ ProcessLabels(string ProgramBody, instruction *ByteCode, int InstructionCount, l
 					int JumpLength = Labels[j].InstructionLine - i;
 					if (JumpLength == 0)
 					{
-						printf("\nERROR - Line %d: This jcc instruction jumps to itself", InstructionLines[i] + 1);
+						printf("\nERROR - Line %d: This jcc/jmp instruction jumps to itself", InstructionLines[i] + 1);
 						++(*ErrorCount);
 						ByteCode[i].src = 1;
 						ByteCode[i].des = 0;
@@ -1317,7 +1496,7 @@ ProcessLabels(string ProgramBody, instruction *ByteCode, int InstructionCount, l
 				char Temp = Operand.Text[Operand.Length];
 				Operand.Text[Operand.Length] = 0;
 
-				printf("\nERROR - Line %d: There is no label called %s in the program.", InstructionLines[i]+1, Operand.Text);
+				printf("\nERROR - Line %d: There is no label called %s in this scope", InstructionLines[i]+1, Operand.Text);
 				++(*ErrorCount);
 				Operand.Text[Operand.Length] = Temp;
 
@@ -1427,21 +1606,38 @@ main(int argc, char* argv[])
 	//int y;
 	//scanf_s("%d", &y);
 
+	int FileIndex = -1;
+	for (int i = 0; i < argc; ++i)
+	{
+		int len = strlen(argv[i]);
+		if (FindString(argv[i], len, ".txt", 4) != -1)
+		{
+			FileIndex = i;
+			break;
+		}
+	}
 
-
-	if (argc > 1 || 1)
+	if (FileIndex == -1)
+	{
+		printf("\nERROR - Open this executable with a \'.txt\' file");
+		char v;
+		scanf_s("%c", &v);
+	}
+	else
 	{
 
+		string ProgramBody;
+
 		FILE *f;
-		fopen_s(&f,"stest.txt", "r");
-		//fopen_s(&f, argv[1], "r");
+		//fopen_s(&f, "stest.txt", "r");
+		fopen_s(&f, argv[FileIndex], "r");
 
 
 		fseek(f, 0, SEEK_END);
 		long fsize = ftell(f);
 		fseek(f, 0, SEEK_SET);
 
-		string ProgramBody;
+
 		ProgramBody.Length = fsize + 2;
 		ProgramBody.Text = (char*)malloc(ProgramBody.Length);
 		fread((void*)ProgramBody.Text, fsize, 1, f);
@@ -1451,7 +1647,6 @@ main(int argc, char* argv[])
 		ProgramBody.Text[fsize + 1] = 0;
 
 		//printf("%s", ProgramBody.Text);
-
 
 		ProgramBody = RemoveSpecialCharacters(ProgramBody);
 		ToUpper(ProgramBody);
@@ -1484,19 +1679,14 @@ main(int argc, char* argv[])
 
 
 
-
 		int LineWidth = 0;
 		int LineIndex = 1;
 		for (int i = 0; i < ProgramBody.Length; ++i)
 		{
-			//NOTE(ian): Optimize?
-			if (ProgramBody.Text[i] != '\n')
+			++LineWidth;
+			if (ProgramBody.Text[i] == '\n')
 			{
-				++LineWidth;
-			}
-			else
-			{
-				LineLengths[LineIndex++] = ++LineWidth;
+				LineLengths[LineIndex++] = LineWidth;
 			}
 		}
 
@@ -1517,69 +1707,39 @@ main(int argc, char* argv[])
 
 
 
-		
+
 
 		int ErrorCount = 0;
 
 		section_marker Sections[4] = { section_marker{ -1,-1,DATA },section_marker{ -1,-1,SIM },section_marker{ -1,-1,CODE },section_marker{ -1,-1,END } };
 		for (int i = 0; i < NumLines; ++i)
 		{
-			int DotIndex = FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".", 1);
-			if (DotIndex != -1)
+			if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".DATA", 5) != -1)
 			{
-				if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".DATA", 5) != -1)
+				if (Sections[0].Start == -1)
 				{
-					if (Sections[0].Start == -1)
-					{
-						Sections[0].Start = i;
-					}
+					Sections[0].Start = i;
 				}
-				else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".CODE", 5) != -1)
+			}
+			else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".CODE", 5) != -1)
+			{
+				if (Sections[2].Start == -1)
 				{
-					if (Sections[2].Start == -1)
-					{
-						Sections[2].Start = i;
-					}
+					Sections[2].Start = i;
 				}
-				else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".SIM", 4) != -1)
+			}
+			else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".SIM", 4) != -1)
+			{
+				if (Sections[1].Start == -1)
 				{
-					if (Sections[1].Start == -1)
-					{
-						Sections[1].Start = i;
-					}
+					Sections[1].Start = i;
 				}
-				else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".END", 4) != -1)
+			}
+			else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, ".END", 4) != -1)
+			{
+				if (Sections[3].Start == -1)
 				{
-					if (Sections[3].Start == -1)
-					{
-						Sections[3].Start = i;
-					}
-				}
-				else
-				{
-					int EndHeaderIndex = DotIndex + 1;
-					for (int j = EndHeaderIndex; j < LineLengths[i + 1]; ++j)
-					{
-						if (!AlphabeticalCharacter(ProgramBody.Text[j]))
-						{
-							EndHeaderIndex = j;
-						}
-					}
-
-					//TODO(ian): replace temporary strings with a function!!!
-					string Temp;
-					Temp.Length = EndHeaderIndex - DotIndex;
-					Temp.Text = (char*)malloc((Temp.Length + 1) * sizeof(char));
-					for (int j = 0; j < Temp.Length; ++j)
-					{
-						Temp.Text[j] = ProgramBody.Text[DotIndex + j];
-					}
-					Temp.Text[Temp.Length] = 0;
-
-					printf("\nERROR - Line %d: %s is not a proper header.", i + 1, Temp);
-					++ErrorCount;
-
-					free(Temp.Text);
+					Sections[3].Start = i;
 				}
 			}
 		}
@@ -1618,6 +1778,12 @@ main(int argc, char* argv[])
 			}
 		}
 
+		if (EndSectionIndex == -1)
+		{
+			printf("\nERROR - There is no .END header.");
+			ErrorCount++;
+		}
+
 
 		int MainMemory = MAX_MAIN_MEMORY;
 		int *Queue = (int *)malloc(MAX_QUEUE_SIZE * sizeof(int));
@@ -1643,52 +1809,133 @@ main(int argc, char* argv[])
 
 		if (HasSection) //DATA
 		{
-			int CompilerMode = COMPILER_NONE;
+			int CompilerMode = COMPILER_QUEUEING;
 			for (int i = Section.Start + 1; i < Section.End; ++i)
 			{
 				if ((LineLengths[i + 1] - LineLengths[i] - 1) > 0)
 				{
 					for (int j = LineLengths[i]; j < LineLengths[i + 1] - 1; ++j)
 					{
-						if (NumericalCharacter(ProgramBody.Text[j]))
+						if (QueueSize <= MAX_QUEUE_SIZE && MainMemory > 0 && MainMemory <= MAX_MAIN_MEMORY)
 						{
-							int k = j;
-							while (NumericalCharacter(ProgramBody.Text[k]) && k < LineLengths[i + 1] - 1)
+							if (NumericalCharacter(ProgramBody.Text[j]))
 							{
-								++k;
+								int k = j;
+								while (NumericalCharacter(ProgramBody.Text[k]) && k < LineLengths[i + 1] - 1)
+								{
+									++k;
+								}
+
+								int Num = ToInt(string{ &ProgramBody.Text[j],k - j });
+
+								if (QueueSize + 1 > MAX_QUEUE_SIZE)
+								{
+									printf("\nERROR - Line %d: Max Queue Size Reached!!", i + 1);
+									++ErrorCount;
+									CompilerMode = COMPILER_NONE;
+									break;
+								}
+
+								if (MainMemory == 0)
+								{
+									printf("\nERROR - Line %d: Main Memory is empty. There is nothing more to take.", i + 1);
+									++ErrorCount;
+									CompilerMode = COMPILER_NONE;
+									break;
+								}
+
+
+								if (MainMemory - Num > 0)
+								{
+									Queue[QueueSize++] = Num;
+									MainMemory -= Num;
+								}
+								else
+								{
+									Queue[QueueSize++] = MainMemory;
+									MainMemory = 0;
+								}
+
+								j += k - j - 1;
 							}
-
-							int Num = ToInt(string{ &ProgramBody.Text[j],k - j });
-
-							if (QueueSize + 1 > MAX_QUEUE_SIZE)
+							else if (ProgramBody.Text[j] == '\"') //Strings
 							{
-								printf("\nERROR - Line %d: Max Queue Size Reached!!", i + 1);
-								++ErrorCount;
-								CompilerMode = COMPILER_NONE;
-								break;
-							}
-
-							if (MainMemory == 0)
-							{
-								printf("\nERROR - Line %d: Main Memory is empty. There is nothing more to take.", i + 1);
-								++ErrorCount;
-								CompilerMode = COMPILER_NONE;
-								break;
-							}
+								int k = j + 1;
+								while (ProgramBody.Text[k] != '\"' && k < LineLengths[i + 1] - 1)
+								{
 
 
-							if (MainMemory - Num > 0)
-							{
-								Queue[QueueSize++] = Num;
-								MainMemory -= Num;
-							}
-							else
-							{
-								Queue[QueueSize++] = MainMemory;
-								MainMemory = 0;
-							}
+									int Num;
+									if (ProgramBody.Text[k] == '\\')
+									{
+										if (ProgramBody.Text[k + 1] == 'N')
+										{
+											Num = (int)'\n';
+										}
+										else if (ProgramBody.Text[k + 1] == '\\')
+										{
+											Num = (int)'\\';
+										}
+										else if (ProgramBody.Text[k + 1] == 'T')
+										{
+											Num = (int)'\t';
+										}
+										else if (ProgramBody.Text[k + 1] == 'V')
+										{
+											Num = (int)'\v';
+										}
+										else if (ProgramBody.Text[k + 1] == '\'')
+										{
+											Num = (int)'\'';
+										}
+										else if (ProgramBody.Text[k + 1] == '"')
+										{
+											Num = (int)'\"';
+										}
+										else if (ProgramBody.Text[k + 1] == '?')
+										{
+											Num = (int)'\?';
+										}
+										++k;
 
-							j += k - j - 1;
+									}
+									else
+									{
+										Num = (int)ProgramBody.Text[k];
+									}
+									
+
+									if (QueueSize + 1 > MAX_QUEUE_SIZE)
+									{
+										printf("\nERROR - Line %d: Max Queue Size Reached!!", i + 1);
+										++ErrorCount;
+										CompilerMode = COMPILER_NONE;
+										break;
+									}
+
+									if (MainMemory == 0)
+									{
+										printf("\nERROR - Line %d: Main Memory is empty. There is nothing more to take.", i + 1);
+										++ErrorCount;
+										CompilerMode = COMPILER_NONE;
+										break;
+									}
+
+
+									if (MainMemory - Num > 0)
+									{
+										Queue[QueueSize++] = Num;
+										MainMemory -= Num;
+									}
+									else
+									{
+										Queue[QueueSize++] = MainMemory;
+										MainMemory = 0;
+									}
+									++k;
+								}
+								j += k + 1- j ;
+							}
 						}
 					}
 
@@ -1718,8 +1965,8 @@ main(int argc, char* argv[])
 
 
 		int InstructionCount = 0;
-		instruction* ByteCode = (instruction*)malloc(MAX_INSTRUCTIONS * sizeof(instruction));
-		for (int i = 0; i < MAX_INSTRUCTIONS; ++i)
+		instruction* ByteCode = (instruction*)malloc((MAX_INSTRUCTIONS+5) * sizeof(instruction));
+		for (int i = 0; i < MAX_INSTRUCTIONS + 5; ++i)
 		{
 			ByteCode[i] = instruction{ 0,0,0 };
 		}
@@ -1728,25 +1975,28 @@ main(int argc, char* argv[])
 
 
 
-		int *SimInstructionLines = (int *)malloc(MAX_INSTRUCTIONS * sizeof(int));
-
+		int *SimInstructionLines = (int *)malloc((MAX_INSTRUCTIONS+5) * sizeof(int));
 
 
 		int NumLabels = 0;
 		label *Labels = (label*)malloc(MAX_LABELS * sizeof(label));
 
 		//IMPORTANT TODO(ian): Do bounds checking to make sure these arrays do not get indexed out of range!!!
-		instruction *SimInstructions = (instruction*)malloc(MAX_INSTRUCTIONS * sizeof(instruction));
-		for (int i = 0; i < MAX_INSTRUCTIONS; ++i)
+		instruction *SimInstructions = (instruction*)malloc((MAX_INSTRUCTIONS+5) * sizeof(instruction));
+		for (int i = 0; i < MAX_INSTRUCTIONS+5; ++i)
 		{
 			SimInstructions[i] = instruction{ 0,0,0 };
 		}
 		//memset(SimInstructions, 0, MAX_INSTRUCTIONS * sizeof(instruction));
-		int MaxSimInstructions = 500;
 		int NumSimInstructions = 0;
 		int NumSimAssembledInstructions = 0;
-		int *SimArgs = (int*)malloc(MaxSimInstructions * sizeof(int));
-		string *SimNames = (string*)malloc(MaxSimInstructions * sizeof(string));
+		int *SimArgs = (int*)malloc((MAX_SIM_INSTRUCTIONS+5) * sizeof(int));
+		string *SimNames = (string*)malloc((MAX_SIM_INSTRUCTIONS+5) * sizeof(string));
+		//TODO(ian): make max sim instructions a constant
+		int RecursionDepth = 0;
+		found_string *RecursionDepthData = (found_string*)malloc((MAX_SIM_INSTRUCTIONS + 1) * sizeof(found_string));
+
+
 
 		if (HasSection) //SIM
 		{
@@ -1762,6 +2012,11 @@ main(int argc, char* argv[])
 						printf("\nERROR - Line %d: Expected simulated instruction name.", i + 1);
 					}
 				}
+				else if (NumSimInstructions > MAX_SIM_INSTRUCTIONS)
+				{
+					printf("\nERROR - Line %d: Reached maximum sim instruction count of %d", i + 1, MAX_SIM_INSTRUCTIONS);
+					break;
+				}
 				else
 				{
 					string Parameters[MAX_PARAMETERS];
@@ -1772,6 +2027,7 @@ main(int argc, char* argv[])
 					{
 						if (DetermineOperand(Parameters[j]) != NULL_REGISTER)
 						{
+							//TODO(ian): make error messages consitent with punctuation
 							++ErrorCount;
 							ProperOperands = false;
 							printf("\nERROR - Line %d: MME, QP or R1-R%d can not be parameters for simulated instructions.", i + 1, NUM_REGISTERS);
@@ -1793,7 +2049,6 @@ main(int argc, char* argv[])
 								printf("\nERROR - Line %d: %s is repeated more than once", i + 1, Parameters[j]);
 								Parameters[j].Text[Parameters[j].Length] = Temp;
 								break;
-
 							}
 						}
 					}
@@ -1810,7 +2065,8 @@ main(int argc, char* argv[])
 					{
 
 						NumLabels = 0;
-
+						RecursionDepth = 1;
+						RecursionDepthData[0].String = SimInstructionStuff.String;
 						SimNames[NumSimInstructions] = SimInstructionStuff.String;
 						SimInstructions[NumSimAssembledInstructions] = instruction{ 0,0,0 };
 						instruction *Head = &SimInstructions[NumSimAssembledInstructions];
@@ -1824,19 +2080,29 @@ main(int argc, char* argv[])
 						found_string NewInstruction = { 0 };
 						while (i < Section.End && NewInstruction.String.Length == 0)
 						{
-							int Temp = NumSimAssembledInstructions;
-							AssembleLine(ProgramBody, SimInstructions, &NumSimAssembledInstructions, SimInstructionLines, i, LineLengths,
-								&ErrorCount, Labels, &NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, Parameters, NumParameters, SimArgs);
-
-							if ((NumSimAssembledInstructions - Temp) > 0)
+							if (NumSimAssembledInstructions <= MAX_INSTRUCTIONS)
 							{
-								Head->opcode += NumSimAssembledInstructions - Temp;
+								RecursionDepthData[0].Found = i;
+								int Temp = NumSimAssembledInstructions;
+								AssembleLine(ProgramBody, SimInstructions, &NumSimAssembledInstructions, SimInstructionLines, i, LineLengths,
+									&ErrorCount, Labels, &NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, Parameters, NumParameters, SimArgs, RecursionDepth, RecursionDepthData);
+
+								if ((NumSimAssembledInstructions - Temp) > 0)
+								{
+									Head->src += NumSimAssembledInstructions - Temp;
+								}
+
+
+								++i;
+								NewInstruction = HasNewSimInstruction(string{ &ProgramBody.Text[LineLengths[i]],LineLengths[i + 1] - LineLengths[i] - 1 });
 							}
-
-
-							++i;
-							NewInstruction = HasNewSimInstruction(string{ &ProgramBody.Text[LineLengths[i]],LineLengths[i + 1] - LineLengths[i] - 1 });
+							else
+							{
+								printf("\nERROR - Line %d: Reach maximum sim instruction count of %d",i+1,MAX_INSTRUCTIONS);
+							}
 						}
+
+						//printf("\n%d", Head->src);
 
 						/*printf("\nPrinting Labels for ");
 						PrintString(SimInstructionStuff.String);
@@ -1846,14 +2112,21 @@ main(int argc, char* argv[])
 							PrintString(Labels[j].Name);
 						}*/
 
-						ProcessLabels(ProgramBody, SimInstructions, NumSimAssembledInstructions, Labels, SimInstructionLines, &ErrorCount, NumLabels, LineLengths, ProgramStart, NumSimAssembledInstructions);
-						NumLabels = 0;
-
-						
-
-						if (NewInstruction.String.Length != 0)
+						if (NumSimAssembledInstructions <= MAX_INSTRUCTIONS)
 						{
-							--i;
+							ProcessLabels(ProgramBody, SimInstructions, NumSimAssembledInstructions, Labels, SimInstructionLines, &ErrorCount, NumLabels, LineLengths, ProgramStart, NumSimAssembledInstructions);
+							NumLabels = 0;
+
+
+
+							if (NewInstruction.String.Length != 0)
+							{
+								--i;
+							}
+						}
+						else
+						{
+							break;
 						}
 					}
 
@@ -1878,12 +2151,30 @@ main(int argc, char* argv[])
 			}
 		}
 
-		int *InstructionLines = (int *)malloc(MAX_INSTRUCTIONS * sizeof(int));
+		
+
+		int *InstructionLines = (int *)malloc((MAX_INSTRUCTIONS+5) * sizeof(int));
 		if (HasSection) //CODE
 		{
+			RecursionDepth = 1;
+
+			{
+				string Line = string{ &ProgramBody.Text[LineLengths[Section.Start]], LineLengths[Section.Start + 1] - LineLengths[Section.Start] };
+				RecursionDepthData[0].String = string{ &Line.Text[FindString(Line.Text,Line.Length,".CODE",5)],5 };
+			}
+
 			for (int i = Section.Start + 1; i < Section.End; ++i)
 			{
-				AssembleLine(ProgramBody, ByteCode, &InstructionCount, InstructionLines, i, LineLengths, &ErrorCount, Labels, &NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, 0, 0, SimArgs);
+				if (InstructionCount <= MAX_INSTRUCTIONS)
+				{
+					RecursionDepthData[0].Found = i;
+					AssembleLine(ProgramBody, ByteCode, &InstructionCount, InstructionLines, i, LineLengths, &ErrorCount, Labels,
+						&NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, 0, 0, SimArgs, RecursionDepth, RecursionDepthData);
+				}
+				else
+				{
+					printf("\nERROR - Line %d: Reached maximum instruction count of %d", i + 1, MAX_INSTRUCTIONS);
+				}
 			}
 
 			/*
@@ -1896,13 +2187,11 @@ main(int argc, char* argv[])
 			ProcessLabels(ProgramBody, ByteCode, InstructionCount, Labels, InstructionLines, &ErrorCount, NumLabels, LineLengths, 0, InstructionCount);
 		}
 
+		//PrintByteCode(ByteCode, 0, InstructionCount,InstructionLines);
 
 
 
 
-
-
-		//PrintByteCode(ByteCode, 0, InstructionCount);
 
 		if (ErrorCount > 0)// || 1)
 		{
@@ -1926,6 +2215,7 @@ main(int argc, char* argv[])
 			int ProgramCounter = 0;
 			int CycleCount = 0;
 			int MinMainMemory = MAX_MAIN_MEMORY;
+			RecursionDepth = 1;
 			while (ProgramCounter >= 0 && ProgramCounter < InstructionCount)
 			{
 				/*
@@ -1941,11 +2231,21 @@ main(int argc, char* argv[])
 				COL,
 				CLR
 				*/
-
+				RecursionDepthData[RecursionDepth - 1].Found = InstructionLines[ProgramCounter];
 				int ProgramIncrement = 1;
 				if (ByteCode[ProgramCounter].opcode == NOP)
 				{
 					//NOTE(ian): Do nothing
+				}
+				else if (ByteCode[ProgramCounter].opcode == SIM_INSTRUCTION)
+				{
+					RecursionDepthData[RecursionDepth].String = SimNames[ByteCode[ProgramCounter].src];
+					RecursionDepthData[RecursionDepth].Found = InstructionLines[ProgramCounter];
+					++RecursionDepth;
+				}
+				if (ByteCode[ProgramCounter].opcode == END_SIM_INSTRUCTION)
+				{
+					--RecursionDepth;
 				}
 				else if (ByteCode[ProgramCounter].opcode == TFA)
 				{
@@ -2184,19 +2484,63 @@ main(int argc, char* argv[])
 				}
 				else if (ByteCode[ProgramCounter].opcode == BRK)
 				{
-					printf("\n Breakpoint:\nMainMemory = %d", MainMemory);
-					printf("\nRegisters: ");
+					printf("\nBreakpoint:\n");
+					for (int j = 0; j < RecursionDepth; ++j)
+					{
+						PrintString(RecursionDepthData[j].String);
+						printf(" Line %d\n", RecursionDepthData[j].Found+1);
+					}
+
+					printf("\n-MainMemory = %d", MainMemory);
+					printf("\n-Registers: ");
 					for (int j = 0; j < NUM_REGISTERS; ++j)
 					{
-						printf("R%d = %d", j + 1, Registers[j]);
+						printf("R%d = %d; ", j + 1, Registers[j]);
 					}
-					printf("\nQueue:");
+					printf("\n-Queue: ");
 					for (int i = 0; i < QueueSize; ++i)
 					{
-						printf("#%d: %d | ", i, Queue[(i + QueueStart) % MAX_QUEUE_SIZE]);
+						printf("%d | ", Queue[(i + QueueStart) % MAX_QUEUE_SIZE]);
 					}
-					int v;
-					scanf_s("%d", &v);
+					printf("\nEnter a character and then press enter to continue execution:");
+					char v;
+					scanf_s("%c", &v);
+				}
+				else if (ByteCode[ProgramCounter].opcode == SCN)
+				{
+					int Num = 0;
+					if (Registers[ByteCode[ProgramCounter].src - 1] == 0)
+					{
+						char Temp[100];
+						scanf_s("%s", Temp);
+						for (int j = 0; j < 100; ++j)
+						{
+							if (Temp[j] != 0)
+							{
+								Num = (int)Temp[j];
+								break;
+							}
+						}
+					}
+					else
+					{
+						scanf_s("%d", &Num);
+						if (Num < 0)
+						{
+							Num = -Num;
+						}
+					}
+
+					if (MainMemory - Num >= 0)
+					{
+						MainMemory -= Num;
+						Registers[ByteCode[ProgramCounter].des - 1] += Num;
+					}
+					else
+					{
+						Registers[ByteCode[ProgramCounter].des - 1] += MainMemory;
+						MainMemory = 0;
+					}
 				}
 				
 				ProgramCounter += ProgramIncrement;
