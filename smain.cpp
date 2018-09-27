@@ -54,7 +54,8 @@ enum {
 	LR,
 	AB,
 	EE,
-	BRK
+	BRK,
+	PNL
 }op_code;
 
 enum {
@@ -608,6 +609,10 @@ ParseInstruction(string Line)
 		{
 			Result.Found = SCN;
 		}
+		else if (EqualString(instr, "PNL", 3))
+		{
+			Result.Found = PNL;
+		}
 	}
 
 	return Result;
@@ -936,7 +941,7 @@ NumInstructionParameters(int Opcode)
 	{
 
 	}
-	else if (Opcode == NOP || Opcode == BRK || Opcode == END_SIM_INSTRUCTION)
+	else if (Opcode == NOP || Opcode == BRK || Opcode == END_SIM_INSTRUCTION || Opcode == PNL)
 	{
 		Result = 0;
 	}
@@ -969,7 +974,7 @@ AddLabel(label *Labels, string Label, int *NumLabels, int InstructionCount, int 
 }
 
 #define NUM_REGISTERS 25
-#define MAX_INSTRUCTIONS 5000
+#define MAX_INSTRUCTIONS 10000
 #define MAX_LABELS 1000
 #define MAX_MAIN_MEMORY 500000
 #define MAX_QUEUE_SIZE 5000
@@ -1169,6 +1174,10 @@ PrintByteCode(instruction *ByteCode,int ProgramStart, int ProgramEnd, int *Instr
 				printf("R%d ", ByteCode[i].des);
 			}
 		}
+		else if (ByteCode[i].opcode == PNL)
+		{
+			printf("PNL ");
+		}
 
 		printf(" Line %d", InstructionLines[i]+1);
 		
@@ -1232,8 +1241,13 @@ AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, i
 
 		string Operands[MAX_PARAMETERS];
 
-		int NumOperands = ParseParameters({ &ProgramBody.Text[StartOpcodeIndex + ParsedInstr.String.Length + 1],LineLengths[i + 1] - StartOpcodeIndex - ParsedInstr.String.Length}, Operands, MAX_PARAMETERS);
 		int SimIndex = IsSimInstruction(ParsedInstr.String, SimNames, *NumSimInstructions);
+		if (SimIndex == 28 && Potential.opcode == -1)
+		{
+			int u = 9;
+		}
+		int NumOperands = ParseParameters({ &ProgramBody.Text[StartOpcodeIndex + ParsedInstr.String.Length + 1],LineLengths[i + 1] - StartOpcodeIndex - ParsedInstr.String.Length-1}, Operands, MAX_PARAMETERS);
+		
 
 		int RequiredArgs = -1;
 		if (Potential.opcode != -1 || SimIndex != -1)
@@ -1616,6 +1630,7 @@ main(int argc, char* argv[])
 			break;
 		}
 	}
+	FileIndex = 0;
 
 	if (FileIndex == -1)
 	{
@@ -1629,8 +1644,8 @@ main(int argc, char* argv[])
 		string ProgramBody;
 
 		FILE *f;
-		//fopen_s(&f, "stest.txt", "r");
-		fopen_s(&f, argv[FileIndex], "r");
+		fopen_s(&f, "Program.txt", "r");
+		//fopen_s(&f, argv[FileIndex], "r");
 
 
 		fseek(f, 0, SEEK_END);
@@ -1762,6 +1777,8 @@ main(int argc, char* argv[])
 			Sections[i] = Sections[MinIndex];
 			Sections[MinIndex] = Temp;
 		}
+
+		//IMPORTANT TODO(ian); Add a release build flag to allow for compact code generation
 
 		//IMPORTANT TODO(ian): Actually find out what happens at the end of the file!!!
 		//This is really hacky!!!!
@@ -2541,6 +2558,22 @@ main(int argc, char* argv[])
 						Registers[ByteCode[ProgramCounter].des - 1] += MainMemory;
 						MainMemory = 0;
 					}
+				}
+				else if (ByteCode[ProgramCounter].opcode == PNL)
+				{
+					int SizeSequence = 0;
+					int NumZeros = 0;
+					for (int j = 0; j < QueueSize; ++j)
+					{
+						++SizeSequence;
+						if (Queue[(j + QueueStart) % MAX_QUEUE_SIZE] == 0)
+						{
+							++NumZeros;
+							printf("#%d: %d\n", NumZeros, SizeSequence);
+							SizeSequence = 0;
+						}
+					}
+					printf("\nThere are %d null terminating sequences.\n",NumZeros);
 				}
 				
 				ProgramCounter += ProgramIncrement;
