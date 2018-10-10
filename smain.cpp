@@ -185,11 +185,26 @@ PrintString(string Body)
 void
 ToUpper(string Body)
 {
+	int Mode = 0;
 	for (int i = 0; i < Body.Length; ++i)
 	{
-		if (LowercaseCharacter(Body.Text[i]))
+		if (Mode == 0)
 		{
-			Body.Text[i] -= 32;
+			if (LowercaseCharacter(Body.Text[i]))
+			{
+				Body.Text[i] -= 32;
+			}
+			else if (Body.Text[i] == '\"')
+			{
+				Mode = 1;
+			}
+		}
+		else
+		{
+			if (Body.Text[i] == '\"' || Body.Text[i] == '\n')
+			{
+				Mode = 0;
+			}
 		}
 	}
 }
@@ -391,35 +406,50 @@ RemoveCharacter(char *String, int Length, int Start, int End)
 
 
 string
-RemoveSpecialCharacters(string Body)
+RemoveComments(string Body)
 {
+	int Mode = 0;
 	for (int i = 0; i < Body.Length; ++i)
 	{
-		if (Body.Text[i] == ';')
+		if (Mode == 0)
 		{
-			int index = i;
-			while (Body.Text[index] != '\n')
+			if (Body.Text[i] == '\"')
 			{
-				++index;
+				Mode = 1;
 			}
+			if (Body.Text[i] == ';')
+			{
+				int index = i;
+				while (Body.Text[index] != '\n')
+				{
+					++index;
+				}
 
 
-			RemoveCharacter(Body, i, index);
+				RemoveCharacter(Body, i, index);
 
-			Body.Length -= index - i;
+				Body.Length -= index - i;
+			}
+			else if (Body.Text[i] > 127 || Body.Text[i] < 0)
+			{
+				int index = i;
+				while (Body.Text[index] > 127 || Body.Text[index] < 0)
+				{
+					++index;
+				}
+
+
+				RemoveCharacter(Body, i, index);
+
+				Body.Length -= index - i;
+			}
 		}
-		else if (Body.Text[i] > 127 || Body.Text[i] < 0)
+		else
 		{
-			int index = i;
-			while (Body.Text[index] > 127 || Body.Text[index] < 0)
+			if (Body.Text[i] == '\n' || Body.Text[i] == '\"')
 			{
-				++index;
+				Mode = 0;
 			}
-
-
-			RemoveCharacter(Body, i, index);
-
-			Body.Length -= index - i;
 		}
 	}
 	return Body;
@@ -1187,7 +1217,8 @@ PrintByteCode(instruction *ByteCode,int ProgramStart, int ProgramEnd, int *Instr
 
 void
 AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, int *InstructionLines, int i, int *LineLengths, int *ErrorCount, label *Labels, int *NumLabels,
-	string *SimNames, instruction *SimInstructions, int *NumSimInstructions, int *SimInstructionLines,string *Parameters, int NumParameters, int *SimArgs, int RecursionDepth, found_string *RecursionDepthData)
+	string *SimNames, instruction *SimInstructions, int *NumSimInstructions, int *SimInstructionLines,string *Parameters, int NumParameters, int *SimArgs, int RecursionDepth, 
+	found_string *RecursionDepthData, int ReleaseBuild)
 {
 	found_string Label = ParseLabel(string{ &ProgramBody.Text[LineLengths[i]],LineLengths[i + 1] - LineLengths[i] - 1 });
 
@@ -1356,9 +1387,11 @@ AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, i
 
 				//TODO(ian): change to Add Instruction function
 				//TODO(ian): Check to see if InstructionCount reaches MAX_INSTRUCTIONS
-				InstructionLines[(*InstructionCount)] = i;
-				ByteCode[(*InstructionCount)++] = instruction{ SIM_INSTRUCTION,SimIndex,0 };
-
+				if (!ReleaseBuild)
+				{
+					InstructionLines[(*InstructionCount)] = i;
+					ByteCode[(*InstructionCount)++] = instruction{ SIM_INSTRUCTION,SimIndex,0 };
+				}
 				
 				RecursionDepthData[RecursionDepth].String = ParsedInstr.String;
 				RecursionDepthData[RecursionDepth].Found = i;
@@ -1440,8 +1473,11 @@ AssembleLine(string ProgramBody, instruction *ByteCode, int *InstructionCount, i
 
 				//TODO(ian): change to Add Instruction function
 				//TODO(ian): Check to see if InstructionCount reaches MAX_INSTRUCTIONS
-				InstructionLines[(*InstructionCount)] = i;
-				ByteCode[(*InstructionCount)++] = instruction{ END_SIM_INSTRUCTION,0,0 };
+				if (!ReleaseBuild)
+				{
+					InstructionLines[(*InstructionCount)] = i;
+					ByteCode[(*InstructionCount)++] = instruction{ END_SIM_INSTRUCTION,0,0 };
+				}
 			}
 		}
 	}
@@ -1663,7 +1699,7 @@ main(int argc, char* argv[])
 
 		//printf("%s", ProgramBody.Text);
 
-		ProgramBody = RemoveSpecialCharacters(ProgramBody);
+		ProgramBody = RemoveComments(ProgramBody);
 		ToUpper(ProgramBody);
 		//RemoveSpecialCharacters(ProgramBody.Text,ProgramBody.Length);
 
@@ -1722,7 +1758,7 @@ main(int argc, char* argv[])
 
 
 
-
+		int ReleaseBuild = 0;
 
 		int ErrorCount = 0;
 
@@ -1756,6 +1792,10 @@ main(int argc, char* argv[])
 				{
 					Sections[3].Start = i;
 				}
+			}
+			else if (FindString(&ProgramBody.Text[LineLengths[i]], LineLengths[i + 1] - LineLengths[i] - 1, "@RELEASE", 8) != -1)
+			{
+				ReleaseBuild = 1;
 			}
 		}
 
@@ -1885,7 +1925,7 @@ main(int argc, char* argv[])
 									int Num;
 									if (ProgramBody.Text[k] == '\\')
 									{
-										if (ProgramBody.Text[k + 1] == 'N')
+										if (ProgramBody.Text[k + 1] == 'n')
 										{
 											Num = (int)'\n';
 										}
@@ -1893,7 +1933,7 @@ main(int argc, char* argv[])
 										{
 											Num = (int)'\\';
 										}
-										else if (ProgramBody.Text[k + 1] == 'T')
+										else if (ProgramBody.Text[k + 1] == 't')
 										{
 											Num = (int)'\t';
 										}
@@ -1912,6 +1952,10 @@ main(int argc, char* argv[])
 										else if (ProgramBody.Text[k + 1] == '?')
 										{
 											Num = (int)'\?';
+										}
+										else if (ProgramBody.Text[k + 1] == '0')
+										{
+											Num = 0;
 										}
 										++k;
 
@@ -2102,7 +2146,7 @@ main(int argc, char* argv[])
 								RecursionDepthData[0].Found = i;
 								int Temp = NumSimAssembledInstructions;
 								AssembleLine(ProgramBody, SimInstructions, &NumSimAssembledInstructions, SimInstructionLines, i, LineLengths,
-									&ErrorCount, Labels, &NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, Parameters, NumParameters, SimArgs, RecursionDepth, RecursionDepthData);
+									&ErrorCount, Labels, &NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, Parameters, NumParameters, SimArgs, RecursionDepth, RecursionDepthData,ReleaseBuild);
 
 								if ((NumSimAssembledInstructions - Temp) > 0)
 								{
@@ -2186,7 +2230,7 @@ main(int argc, char* argv[])
 				{
 					RecursionDepthData[0].Found = i;
 					AssembleLine(ProgramBody, ByteCode, &InstructionCount, InstructionLines, i, LineLengths, &ErrorCount, Labels,
-						&NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, 0, 0, SimArgs, RecursionDepth, RecursionDepthData);
+						&NumLabels, SimNames, SimInstructions, &NumSimInstructions, SimInstructionLines, 0, 0, SimArgs, RecursionDepth, RecursionDepthData,ReleaseBuild);
 				}
 				else
 				{
@@ -2206,8 +2250,14 @@ main(int argc, char* argv[])
 
 		//PrintByteCode(ByteCode, 0, InstructionCount,InstructionLines);
 
-
-
+		/*
+		; --TODO(ian) : things to add to the language
+			; add Macro that counts null terminating sequences in queue
+			; variable instruction width ?
+			; add support for more(infinite ? ) space for sim instructions
+			; check to see if labels don't need to add a nop instruction if on an empty line
+			; fix error where error codes print out the wrong line
+		*/
 
 
 		if (ErrorCount > 0)// || 1)
@@ -2514,14 +2564,14 @@ main(int argc, char* argv[])
 					{
 						printf("R%d = %d; ", j + 1, Registers[j]);
 					}
-					printf("\n-Queue: ");
+					printf("\n-Queue (Size %d): ",QueueSize);
 					for (int i = 0; i < QueueSize; ++i)
 					{
 						printf("%d | ", Queue[(i + QueueStart) % MAX_QUEUE_SIZE]);
 					}
 					printf("\nEnter a character and then press enter to continue execution:");
 					char v;
-					scanf_s("%c", &v);
+					scanf_s(" %c", &v);
 				}
 				else if (ByteCode[ProgramCounter].opcode == SCN)
 				{
@@ -2529,7 +2579,7 @@ main(int argc, char* argv[])
 					if (Registers[ByteCode[ProgramCounter].src - 1] == 0)
 					{
 						char Temp[100];
-						scanf_s("%s", Temp);
+						scanf_s(" %s", Temp);
 						for (int j = 0; j < 100; ++j)
 						{
 							if (Temp[j] != 0)
@@ -2541,7 +2591,7 @@ main(int argc, char* argv[])
 					}
 					else
 					{
-						scanf_s("%d", &Num);
+						scanf_s(" %d", &Num);
 						if (Num < 0)
 						{
 							Num = -Num;
